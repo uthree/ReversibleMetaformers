@@ -40,12 +40,3 @@ class SpatialShift(nn.Module):
         x = torch.cat([s[:, :, t:h-b, l:w-r] for (s, d) in zip(x, self.shift_directions)], dim=1)
         return x
 
-
-# test
-shifter = SpatialShift([[3,3], [1, 2]])
-image = torch.randn(1,4,16,16)
-print(shifter(image).shape)
-        
-
-        
-
