@@ -96,23 +96,7 @@ class MLP(nn.Module):
         x = self.fc2(x)
         return x
 
-class PatchWiseMLP(nn.Module):
-    def __init__(self, dim,  activation=nn.ReLU()):
-        super(PatchWiseMLP, self).__init__()
-        self.fc1, fc2 = nn.Linear(dim, dim), nn.Linear(dim, dim)
-        self.act = activation
-
-    def forward(self, x):
-        x = x.swapaxes(1, 2)
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.fc2(x)
-        x = x.swapaxes(1, 2)
-        return x
-
-
 # MLP Mixer
-# If patch_size and num_layers given list, this model swichs pyramid structure mode automatically.
 class MLPMixer(nn.Module):
     def __init__(
             self,
@@ -143,7 +127,10 @@ class MLPMixer(nn.Module):
                         nn.Linear(dim_input_vector, image_size**2 *input_channels),
                         nn.Unflatten(d_model,patch_size**2)))
         else:
-            self.entry_flow.append(Image2Seq(input_channels, image_size, patch_size))
+            self.entry_flow.append(
+                    nn.Sequential(
+                        nn.Conv2d(input_channels, d_model, 1, 1, 0),
+                        Image2Seq(input_channels, image_size, patch_size)))
         self.entry_flow = nn.Sequential(*self.entry_flow)
         
         # hidden layers
@@ -151,16 +138,39 @@ class MLPMixer(nn.Module):
         block_class = rv.ReversibleBlock if reversible else IrreversibleBlock
         seq_init    = lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks)) if reversible else nn.Sequential
         for nlayers in num_layers:
-            for _ in range(nlayers):
-                hidden_blocks.append(
-                        block_class(
-                            nn.Sequential( # f block
-                            
-                            )
-                        ))
+            hidden_blocks.append(
+                block_class(
+                    nn.Sequential( # f block channelwise MLP
+                        nn.LayerNorm(d_model),
+                        MLP(d_model, activation)
+                    ),
+                    nn.Sequential( # g block spatial mixer mlp
+                        nn.swapaxes(1, 2),
+                        nn.LayerNorm(patch_size**2),
+                         MLP(d_model, activation),
+                        nn.swapaxes(1, 2))))
             if scale == 'down':
                 patch_size = patch_size * scale_factor
             elif scale == 'up':
                 patch_size = patch_size // scale_factor
         hidden_blocks = apply_stochastic_depth(hidden_blocks, 1.0, stochastic_depth_probability)
         self.mid_flow = seq_init(*hidden_blocks)
+        exit_flow = []
+        if output_channels == None:
+            output_channels = d_model
+        exit_flow.append(
+                nn.linear(d_model, output_channels))
+        if  num_classes:
+            exit_flow.append(Seq2Image(output_channels, image_size, patch_size))
+        else:
+            exit_flow.append(nn.AvgPool1d(image_size))
+        self.exit_flow = nn.Sequential(*exit_flow)
+
+    def forward(self, x):
+        x = self.entry_flow(x)
+        x = self.mid_flow(x)
+        x = self.entry_flow(x)
+        return x
+
+
+
