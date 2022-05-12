@@ -10,7 +10,6 @@ def apply_stochastic_depth(seq : nn.Sequential, max_p=1.0, min_p=0.5):
 class Stochastic(nn.Module):
     def __init__(self, module, p=0.5):
         super(Stochastic, self).__init__()
-        print(p)
         self.probability = p
         self.module = module
 

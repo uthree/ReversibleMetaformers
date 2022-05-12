@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .basic import *
+from basic import *
 
 import numpy as np
 import revtorch as rv
@@ -85,15 +85,20 @@ class Seq2Image(nn.Module):
         return x
 
 class MLP(nn.Module):
-    def __init__(self, dim, activation=nn.ReLU()):
+    def __init__(self, dim, activation=nn.ReLU(), swap_axes=None):
         super(MLP, self).__init__()
-        self.fc1, fc2 = nn.Linear(dim, dim), nn.Linear(dim, dim)
+        self.fc1, self.fc2 = nn.Linear(dim, dim), nn.Linear(dim, dim)
         self.act = activation
+        self.swap_axes=swap_axes
 
     def forward(self, x):
+        if self.swap_axes:
+            x = x.swapaxes(*self.swap_axes)
         x = self.fc1(x)
         x = self.act(x)
         x = self.fc2(x)
+        if self.swap_axes:
+            x = x.swapaxes(*self.swap_axes)
         return x
 
 # MLP Mixer
@@ -108,15 +113,12 @@ class MLPMixer(nn.Module):
             patch_size=16,
             d_model=64,
             num_layers=1,
-            scale_factor=2,
-            scale='down',
             stochastic_depth_probability=1.0,
             reversible=True,
-            activation='gelu'
+            activation='gelu',
             ):
         super(MLPMixer, self).__init__()
-        
-        num_layers = [num_layers] if type(num_layers) == int else num_layers
+
         # create entry flow
         self.entry_flow = []
         if input_channels == None:
@@ -125,42 +127,43 @@ class MLPMixer(nn.Module):
             self.entry_flow.append(
                     nn.Sequential(
                         nn.Linear(dim_input_vector, image_size**2 *input_channels),
-                        nn.Unflatten(d_model,patch_size**2)))
+                        nn.Unflatten(d_model, (image_size//patch_size)**2)))
         else:
             self.entry_flow.append(
                     nn.Sequential(
-                        nn.Conv2d(input_channels, d_model, 1, 1, 0),
-                        Image2Seq(input_channels, image_size, patch_size)))
+                        Image2Seq(input_channels, image_size, patch_size),
+                        nn.Linear(patch_size**2*input_channels, d_model)))
         self.entry_flow = nn.Sequential(*self.entry_flow)
         
         # hidden layers
         hidden_blocks = []
         block_class = rv.ReversibleBlock if reversible else IrreversibleBlock
-        seq_init    = lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks)) if reversible else nn.Sequential
-        for nlayers in num_layers:
+        seq_init    = lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks)) if reversible else lambda blocks: nn.Sequential(*blocks)
+        for prob in np.linspace(1.0, stochastic_depth_probability, num_layers):
             hidden_blocks.append(
                 block_class(
-                    nn.Sequential( # f block channelwise MLP
-                        nn.LayerNorm(d_model),
-                        MLP(d_model, activation)
-                    ),
-                    nn.Sequential( # g block spatial mixer mlp
-                        nn.swapaxes(1, 2),
-                        nn.LayerNorm(patch_size**2),
-                         MLP(d_model, activation),
-                        nn.swapaxes(1, 2))))
-            if scale == 'down':
-                patch_size = patch_size * scale_factor
-            elif scale == 'up':
-                patch_size = patch_size // scale_factor
-        hidden_blocks = apply_stochastic_depth(hidden_blocks, 1.0, stochastic_depth_probability)
-        self.mid_flow = seq_init(*hidden_blocks)
+                    Stochastic(
+                        nn.Sequential( # f block spatial mixer mlp
+                            nn.LayerNorm(d_model),
+                            MLP((image_size//patch_size)**2, string2activation(activation), swap_axes=(1,2))),
+                        p=prob),
+                    Stochastic(
+                        nn.Sequential( # g block channelwise MLP
+                            nn.LayerNorm(d_model),
+                            MLP(d_model, string2activation(activation))
+                        ),
+                        p=prob),
+
+                    split_along_dim=2))
+        self.mid_flow = seq_init(hidden_blocks)
         exit_flow = []
+
+        # create exit flow
         if output_channels == None:
             output_channels = d_model
         exit_flow.append(
-                nn.linear(d_model, output_channels))
-        if  num_classes:
+                nn.Linear(d_model, output_channels))
+        if num_classes:
             exit_flow.append(Seq2Image(output_channels, image_size, patch_size))
         else:
             exit_flow.append(nn.AvgPool1d(image_size))
@@ -168,9 +171,14 @@ class MLPMixer(nn.Module):
 
     def forward(self, x):
         x = self.entry_flow(x)
+        x = torch.repeat_interleave(x, repeats=2, dim=2)
         x = self.mid_flow(x)
-        x = self.entry_flow(x)
+        x1, x2 = torch.chunk(x, 2, dim=2)
+        x = (x1 + x2) / 2
+        x = self.exit_flow(x)
         return x
 
-
-
+# test code
+image = torch.rand(10, 3, 128, 128)
+model = MLPMixer(input_channels=3, image_size=128, patch_size=4, d_model=64, num_classes=10, num_layers=10)
+model(image)
