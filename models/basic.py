@@ -27,9 +27,11 @@ def string2activation(s):
 
 # Dummy layer for rv.ReversibleSequence
 class IrreversibleBlock(nn.Module):
-    def __init__(self, f_block, g_block, split_along_dim):
+    def __init__(self, f_block, g_block, split_along_dim=1):
+        super(IrreversibleBlock, self).__init__()
         self.f_block, self.g_block = f_block, g_block
-        self.spit_along_dim = split_along_dim
+        self.split_along_dim = split_along_dim
+
     def forward(self, x):
         x1, x2 = torch.chunk(x, 2, dim=self.split_along_dim)
         y1, y2 = None, None

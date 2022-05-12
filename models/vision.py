@@ -138,7 +138,7 @@ class MLPMixer(nn.Module):
         # hidden layers
         hidden_blocks = []
         block_class = rv.ReversibleBlock if reversible else IrreversibleBlock
-        seq_init    = lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks)) if reversible else lambda blocks: nn.Sequential(*blocks)
+        seq_init    = (lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks))) if reversible else (lambda blocks: nn.Sequential(*blocks))
         for prob in np.linspace(1.0, stochastic_depth_probability, num_layers):
             hidden_blocks.append(
                 block_class(
@@ -180,5 +180,5 @@ class MLPMixer(nn.Module):
 
 # test code
 image = torch.rand(10, 3, 128, 128)
-model = MLPMixer(input_channels=3, image_size=128, patch_size=4, d_model=64, num_classes=10, num_layers=10)
+model = MLPMixer(input_channels=3, image_size=128, patch_size=4, d_model=64, num_classes=10, num_layers=10, reversible=True)
 model(image)
