@@ -10,7 +10,6 @@ class WithLSHSort(nn.Module):
     def __init__(self,
             d_model=512,
             n_heads=8,
-            segnemt_size=4,
             submodule=nn.Identity(),
             eps=1e-4
             ):
