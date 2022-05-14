@@ -14,7 +14,7 @@ class Conv1dForLSHSort(nn.Module):
         x = x.swapaxes(1,2)
         return x
 
-model_our = WithLSHSort(512, submodule=Conv1dForLSHSort(512, 512, 3, 1, 1, padding_mode='circular', groups=8))
+model_our = WithLSHSort(512, submodule=Conv1dForLSHSort(512, 512, 3, 1, 1, padding_mode='circular', groups=32 ))
 model_att = nn.MultiheadAttention(512, num_heads=8, batch_first=True)
 
 from tqdm import tqdm
