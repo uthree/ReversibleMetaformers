@@ -56,8 +56,4 @@ class WithLSHSort(nn.Module):
         return x
 
 
-seq = torch.randn(4, 3, 512)
-model = WithLSHSort()
-out = model(seq)
 
-print(out-seq)
