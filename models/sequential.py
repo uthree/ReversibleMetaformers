@@ -15,30 +15,44 @@ class WithLSHSort(nn.Module):
             ):
         super(WithLSHSort, self).__init__()
         assert d_model % n_heads == 0, f"d_model must be able to devided by n_heads"
-        self.hash = nn.Linear(d_model, 2*n_heads, bias=False) # TODO: Splity by heads
+        self.hash = nn.Linear(d_model, 2*n_heads, bias=False) # TODO: Split by heads
         self.n_heads = n_heads
         self.d_head = d_model // n_heads
+        self.d_model = d_model
+        self.mod = submodule
 
     def forward(self, x):
         # caluclate indexes
 
-         projected = self.hash(x) #[batch_size d_model, n_heads*2] # Project to 2-dimentional space
+        projected = self.hash(x) #[batch_size d_model, n_heads*2] # Project to 2-dimentional space
         h_x, h_y = torch.split(projected, self.n_heads, dim=2) # [batch_size, seq_len, nheads] where h_x, h_y
         angles = torch.arctan(h_x / h_y) # [batch_size, seq_len, n_heads] # calculate angle of vector
         indexes = torch.argsort(angles, 1) # [batch_size, seq_len, n_heads]
         indexes = torch.unsqueeze(indexes, dim=3).expand(-1, -1, -1, self.d_head) # [batch_size, seq_len, n_heads, d_head]
         
-        # split by heads
-        x = torch.stack(torch.split(x, self.n_heads, dim=2), dim=3) # [batch_size, seq_len, nheads, dim_head]
-        print(x.shape)
+        # split heads
+        x = x.reshape(x.shape[0], x.shape[1], self.n_heads, self.d_head)
 
         # sort heads
-        torch.gather(x, 2, indexes)
-        
+        x = torch.gather(x, 1, indexes)
 
-# test
-
-seq = torch.randn(4, 3, 512)
-model = WithLSHSort()
-model(seq)
+        # concatenate heads
+        x = x.reshape(x.shape[0], x.shape[1], self.d_model)
+                
+    
+        # call module
+        x = self.mod(x)
         
+        # split heads
+        x = x.reshape(x.shape[0], x.shape[1], self.n_heads, self.d_head)
+
+        # scatter
+        #print(indexes.shape, x.shape)
+        x = torch.scatter(torch.zeros_like(x) ,1, indexes, x)
+
+        # concatenate heads
+        x = x.reshape(x.shape[0], x.shape[1], self.d_model)
+        return x
+
+
+
