@@ -11,22 +11,24 @@ class WithLSHSort(nn.Module):
             d_model=512,
             n_heads=8,
             segnemt_size=4,
-            submodule=nn.Identity()
+            submodule=nn.Identity(),
+            eps=1e-4
             ):
         super(WithLSHSort, self).__init__()
         assert d_model % n_heads == 0, f"d_model must be able to devided by n_heads"
-        self.hash = nn.Linear(d_model, 2*n_heads, bias=False) # TODO: Split by heads
+        self.hash = [nn.Linear(d_model // n_heads, 2) for _ in range(d_model // n_heads)]
         self.n_heads = n_heads
         self.d_head = d_model // n_heads
         self.d_model = d_model
         self.mod = submodule
+        self.eps = 1e-4
 
     def forward(self, x):
         # caluclate indexes
 
-        projected = self.hash(x) #[batch_size d_model, n_heads*2] # Project to 2-dimentional space
+        projected = torch.cat([self.hash[n](head) for n, head in zip(range(self.n_heads), torch.split(x, self.d_head, dim=2))], dim=2)
         h_x, h_y = torch.split(projected, self.n_heads, dim=2) # [batch_size, seq_len, nheads] where h_x, h_y
-        angles = torch.arctan(h_x / h_y) # [batch_size, seq_len, n_heads] # calculate angle of vector
+        angles = torch.arctan(h_x / (h_y + self.eps)) # [batch_size, seq_len, n_heads] # calculate angle of vector
         indexes = torch.argsort(angles, 1) # [batch_size, seq_len, n_heads]
         indexes = torch.unsqueeze(indexes, dim=3).expand(-1, -1, -1, self.d_head) # [batch_size, seq_len, n_heads, d_head]
         
@@ -46,8 +48,8 @@ class WithLSHSort(nn.Module):
         # split heads
         x = x.reshape(x.shape[0], x.shape[1], self.n_heads, self.d_head)
 
+        
         # scatter
-        #print(indexes.shape, x.shape)
         x = torch.scatter(torch.zeros_like(x) ,1, indexes, x)
 
         # concatenate heads
@@ -55,4 +57,8 @@ class WithLSHSort(nn.Module):
         return x
 
 
+seq = torch.randn(4, 3, 512)
+model = WithLSHSort()
+out = model(seq)
 
+print(out-seq)
