@@ -15,7 +15,7 @@ class WithLSHSort(nn.Module):
             ):
         super(WithLSHSort, self).__init__()
         assert d_model % n_heads == 0, f"d_model must be able to devided by n_heads"
-        self.hash = [nn.Linear(d_model // n_heads, 2) for _ in range(d_model // n_heads)]
+        self.hash = nn.ModuleList([nn.Linear(d_model // n_heads, 2) for _ in range(d_model // n_heads)])
         self.n_heads = n_heads
         self.d_head = d_model // n_heads
         self.d_model = d_model
