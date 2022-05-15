@@ -104,8 +104,9 @@ class MixtureOfExperts(nn.Module):
         self.logger(gw.shape)
 
         # call available experts
-        # TODO: Fix it
-        x = sum(*[expert(x) * weight for expert, weight in zip(available_experts, gw.swapaxes(0, 2))])
+      
+        print(x.shape)
+        x = sum([expert(x) * weight.swapaxes(0,1).unsqueeze(-1) for expert, weight in zip(available_experts, gw.swapaxes(0,2))])
         return x
         
     def append(self, expert):

@@ -102,7 +102,6 @@ class LSHConv(nn.Module):
     def forward(self,x):
         return self.lsh_module(x)
 
-
 # LEAD: Lesser-required-computability Efficient Approximated Data transformer
 class LEAD(nn.Module):
     def __init__(
@@ -186,6 +185,3 @@ class LEAD(nn.Module):
         for i, moe in enumerate(self.moes):
             moe.append(Expert(d_model, TwoLP(d_model, dim), name=f"{name} of Layer {i}"))
 
-lead = LEAD()
-seq = torch.randn(2, 10, 256)
-print(lead(seq))
