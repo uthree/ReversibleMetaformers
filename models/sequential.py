@@ -137,7 +137,7 @@ class LEAD(nn.Module):
                             d_expert_ffn),
                         name=f"FFN of Layer:{i} No.:{j}"
                         ) for j in range(n_experts)],
-                    num_available_experts=n_experts, logger=print)
+                    num_available_experts=n_experts)
             self.moes.append(moe)
             seq.append(
                 block_class(
