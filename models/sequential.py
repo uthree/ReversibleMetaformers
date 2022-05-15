@@ -55,6 +55,17 @@ class WithLSHSort(nn.Module):
         x = x.reshape(x.shape[0], x.shape[1], self.d_model)
         return x
 
+# convolution with swap axes.
+class Conv1dForLSHSort(nn.Module):
+    def __init__(self, d_model, kernel_size, stride, padding, padding_mode='circular', **kwargs):
+        super(Conv1dForLSHSort, self).__init__()
+        self.conv = nn.Conv1d(d_model, d_model, kernel_size, stride, padding, padding_mode=padding_mode, **kwargs)
+    def forward(self, x):
+        x = x.swapaxes(1,2)
+        x = self.conv(x)
+        x = x.swapaxes(1,2)
+        return x
+
 
 # convolution with swap axes.
 class Conv1dForLSHSort(nn.Module):
@@ -67,11 +78,14 @@ class Conv1dForLSHSort(nn.Module):
         x = x.swapaxes(1,2)
         return x
 
+
 # convolution sequece with LSH sort
 # For example usage, replace Transformer's MultiHeadAttention to it
 class LSHConv(nn.Module):
     def __init__(self, d_model, n_heads, kernel_size=3, stride=1, padding=1, padding_mode='circular', groups=None, bias=True):
+
         super(LSHConv, self).__init__()
+
         if not groups:
             groups = n_heads
         submodule = Conv1dForLSHSort(d_model, kernel_size, stride, padding, padding_mode, groups=groups, bias=bias)
@@ -80,4 +94,5 @@ class LSHConv(nn.Module):
     def forward(self,x):
         return self.lsh_module(x)
 
-
+    def forward(self,x):
+        return self.lsh_module(x)
