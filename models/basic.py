@@ -70,6 +70,8 @@ class Expert(nn.Module):
         self.module = module
         if not name:
             self.name = f'Unnnamed expert module {hex(random.randint(0, 2**32))}'
+        else:
+            self.name=name
 
     def forward(self, x):
         return self.module(x)
@@ -102,8 +104,11 @@ class MixtureOfExperts(nn.Module):
         self.logger(gw.shape)
 
         # call available experts
+        # TODO: Fix it
         x = sum(*[expert(x) * weight for expert, weight in zip(available_experts, gw.swapaxes(0, 2))])
         return x
         
     def append(self, expert):
         self.experts.append(expert)
+
+

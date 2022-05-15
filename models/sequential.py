@@ -1,5 +1,10 @@
+import numpy as np
+
 import torch
 import torch.nn as nn
+
+from basic import Stochastic, TwoLP, IrreversibleBlock, MixtureOfExperts, Expert
+import revtorch as rv
 
 # Inputs [batch_size, seq_len, d_model]
 # Outputs [batch_size, seq_len, d_model]
@@ -96,3 +101,91 @@ class LSHConv(nn.Module):
 
     def forward(self,x):
         return self.lsh_module(x)
+
+
+# LEAD: Lesser-required-computability Efficient Approximated Data transformer
+class LEAD(nn.Module):
+    def __init__(
+            self,
+            d_model=256,
+            n_heads=8,
+            n_layers=12,
+            d_expert_ffn=256,
+            n_experts=4,
+            layer_drop_probability=0.5,
+            spatial_mixer_class=LSHConv,
+            reversible=True,
+            spatial_mixer_kwargs={
+                    'kernel_size': 3,
+                    'stride' : 1,
+                    'padding' : 1,
+                }
+            ):
+        block_class = rv.ReversibleBlock if reversible else IrreversibleBlock
+        seq_init    = (lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks))) if reversible else (lambda blocks: nn.Sequential(*blocks))
+        super(LEAD, self).__init__()
+        
+        seq = []
+        self.moes = []
+        self.d_model = d_model
+        for i, d_prob in zip(range(n_layers), np.linspace(1.0, layer_drop_probability)):
+            moe = MixtureOfExperts(
+                    d_model,
+                    [Expert(
+                        d_model,
+                        TwoLP(
+                            d_model,
+                            d_expert_ffn),
+                        name=f"FFN of Layer:{i} No.:{j}"
+                        ) for j in range(n_experts)],
+                    num_available_experts=n_experts, logger=print)
+            self.moes.append(moe)
+            seq.append(
+                block_class(
+                    Stochastic(
+                        nn.Sequential(# F block: spatial mixer
+                            nn.LayerNorm(d_model),
+                            spatial_mixer_class(d_model, n_heads, **spatial_mixer_kwargs),
+                            ),
+                        p=d_prob
+                        ),
+                    Stochastic(
+                        nn.Sequential( # G block: FeedForward
+                            nn.LayerNorm(d_model),
+                            moe,
+                            ), p=d_prob
+                        ),
+                    split_along_dim=2
+                    )
+                )
+            self.seq = seq_init(seq)
+        
+        self.num_available_experts_ = n_experts
+
+    def forward(self, x):
+        x = torch.repeat_interleave(x, repeats=2, dim=2)
+        x = self.seq(x)
+        x1, x2 = torch.chunk(x, 2, dim=2)
+        x = (x1 + x2) / 2
+        return x
+
+    @property
+    def num_avairable_experts(self):
+        return self.num_available_experts_
+
+    @num_avairable_experts.setter
+    def num_available_experts(self, num):
+        self.num_available_experts_ = num
+        for moe in self.moes:
+            moe.num_available_experts = num
+    
+    def add_expert_mlp(self, name='Unnamed Expert', dim=None):
+        d_model = self.d_model
+        if not dim:
+            dim = self.d_model
+        for i, moe in enumerate(self.moes):
+            moe.append(Expert(d_model, TwoLP(d_model, dim), name=f"{name} of Layer {i}"))
+
+lead = LEAD()
+seq = torch.randn(2, 10, 256)
+print(lead(seq))
