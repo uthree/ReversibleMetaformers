@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from basic import Stochastic, TwoLP, IrreversibleBlock, MixtureOfExperts, Expert
 import revtorch as rv
+import datetime
 
 # Inputs [batch_size, seq_len, d_model]
 # Outputs [batch_size, seq_len, d_model]
@@ -118,12 +119,14 @@ class LEAD(nn.Module):
                     'kernel_size': 3,
                     'stride' : 1,
                     'padding' : 1,
-                }
+                },
+            logger=nn.Identity()
             ):
         block_class = rv.ReversibleBlock if reversible else IrreversibleBlock
         seq_init    = (lambda blocks: rv.ReversibleSequence(nn.ModuleList(blocks))) if reversible else (lambda blocks: nn.Sequential(*blocks))
         super(LEAD, self).__init__()
         
+        self.logger = logger
         seq = []
         self.moes = []
         self.d_model = d_model
@@ -137,7 +140,7 @@ class LEAD(nn.Module):
                             d_expert_ffn),
                         name=f"FFN of Layer:{i} No.:{j}"
                         ) for j in range(n_experts)],
-                    num_available_experts=n_experts)
+                    num_available_experts=n_experts, logger=logger)
             self.moes.append(moe)
             seq.append(
                 block_class(
@@ -162,10 +165,14 @@ class LEAD(nn.Module):
         self.num_available_experts_ = n_experts
 
     def forward(self, x):
+        start_time = datetime.now()
+        self.logger(f"start processing shape={x.shape}")
         x = torch.repeat_interleave(x, repeats=2, dim=2)
         x = self.seq(x)
         x1, x2 = torch.chunk(x, 2, dim=2)
         x = (x1 + x2) / 2
+        delta_time = datetime.now() - start_time
+        self.logger(f"finished processing at f{delta_time.total_seconds()}seconds")
         return x
 
     @property
@@ -184,4 +191,5 @@ class LEAD(nn.Module):
             dim = self.d_model
         for i, moe in enumerate(self.moes):
             moe.append(Expert(d_model, TwoLP(d_model, dim), name=f"{name} of Layer {i}"))
+
 
