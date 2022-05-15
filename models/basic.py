@@ -108,10 +108,3 @@ class MixtureOfExperts(nn.Module):
     def append(self, expert):
         self.experts.append(expert)
 
-
-moe = MixtureOfExperts(512)
-exp = Expert(512, TwoLP(512, 512))
-moe.append(exp)
-moe.append(exp)
-seq = torch.randn(1, 10, 512)
-out = moe(seq)
